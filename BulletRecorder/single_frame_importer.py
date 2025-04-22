@@ -21,22 +21,94 @@ print(f'Processing {filepath}')
 
 SELECTED_EPISODE = 1 
 
+
+
+########### FOR THE ROBOT  
+powder_coated_metal_texture = bpy.data.materials.new(name="PowderCoatedMetal")
+powder_coated_metal_texture.use_nodes = True
+nodes = powder_coated_metal_texture.node_tree.nodes
+links = powder_coated_metal_texture.node_tree.links
+# Clear default nodes
+nodes.clear()
+# Create necessary nodes
+output_node = nodes.new(type='ShaderNodeOutputMaterial')
+output_node.location = (400, 0)
+principled_node = nodes.new(type='ShaderNodeBsdfPrincipled')
+principled_node.location = (0, 0)
+principled_node.inputs["Metallic"].default_value = 0.5 #1.0
+principled_node.inputs["Roughness"].default_value = 0.55
+principled_node.inputs["Coat Weight"].default_value = 0.2
+principled_node.inputs["Coat Roughness"].default_value = 0.1
+# Add noise texture for subtle surface texture
+noise_node = nodes.new(type='ShaderNodeTexNoise')
+noise_node.location = (-600, -100)
+noise_node.inputs["Scale"].default_value = 150.0
+noise_node.inputs["Detail"].default_value = 2.0
+noise_node.inputs["Roughness"].default_value = 0.5
+
+# Add bump node
+bump_node = nodes.new(type='ShaderNodeBump')
+bump_node.location = (-200, -100)
+bump_node.inputs["Strength"].default_value = 0.02 #0.1
+bump_node.inputs["Distance"].default_value = 0.05
+
+# Link nodes
+links.new(principled_node.outputs["BSDF"], output_node.inputs["Surface"])
+links.new(noise_node.outputs["Fac"], bump_node.inputs["Height"])
+links.new(bump_node.outputs["Normal"], principled_node.inputs["Normal"])
+
+
+########### FOR METAL 
+# Create a new material
+metal_texture = bpy.data.materials.new(name="RealisticMetal")
+metal_texture.use_nodes = True
+nodes = metal_texture.node_tree.nodes
+links = metal_texture.node_tree.links
+nodes.clear()
+
+# Create shader nodes
+output_node = nodes.new(type='ShaderNodeOutputMaterial')
+output_node.location = (400, 0)
+
+principled_node = nodes.new(type='ShaderNodeBsdfPrincipled')
+principled_node.location = (0, 0)
+principled_node.inputs['Metallic'].default_value = 1.0
+principled_node.inputs['Roughness'].default_value = 0.3
+principled_node.inputs['Anisotropic'].default_value = 0.9
+principled_node.inputs['Anisotropic Rotation'].default_value = 0.0
+links.new(principled_node.outputs["BSDF"], output_node.inputs["Surface"])
+
+
+###### FOR GLASS
+glass_texture = bpy.data.materials.new(name="Glass")
+glass_texture.use_nodes = True
+nodes = glass_texture.node_tree.nodes
+bsdf = nodes.get("Principled BSDF")
+
+#bsdf.inputs["Base Color"].default_value = color
+bsdf.inputs["Transmission Weight"].default_value = 0.75
+bsdf.inputs["Roughness"].default_value = 0.05
+bsdf.inputs["IOR"].default_value = 1.5
+
 new_collection = bpy.data.collections.new("BaseScene")
 bpy.context.scene.collection.children.link(new_collection)
 
 with open(filepath, 'rb') as pickle_file:
     data = pickle.load(pickle_file)
-    collection_name = splitext(basename(filepath))[0]
-    collection = bpy.data.collections.new(collection_name)
-    bpy.context.scene.collection.children.link(collection)
-    context.view_layer.active_layer_collection = \
-        context.view_layer.layer_collection.children[-1]
+    # collection_name = splitext(basename(filepath))[0]
+    # collection = bpy.data.collections.new(collection_name)
+    # bpy.context.scene.collection.children.link(collection)
+    # context.view_layer.active_layer_collection = \
+    #     context.view_layer.layer_collection.children[-1]
     for obj_key in data:
         pybullet_obj = data[obj_key]
         # Load mesh of each link
         if pybullet_obj['type'] == 'cube':
             bpy.ops.mesh.primitive_cube_add(size=1) #, location=(x, y, z))
             cube = bpy.context.active_object
+            for col in cube.users_collection:
+                col.objects.unlink(cube)
+
             cube.scale = pybullet_obj["scale"] # Blender cube default size is 2x2x2
             # Create a new material
             mat = bpy.data.materials.new(name=f"color_{obj_key}]")
@@ -44,8 +116,12 @@ with open(filepath, 'rb') as pickle_file:
             bsdf = mat.node_tree.nodes.get("Principled BSDF")
             # Assign color to the material
             bsdf.inputs['Base Color'].default_value = pybullet_obj["color"]
+            bsdf.inputs['Coat Weight'].default_value = 0.6
+            bsdf.inputs['Coat Roughness'].default_value = 0.1
             # Assign material to the cube
             cube.data.materials.append(mat)
+            bpy.context.view_layer.objects.active = None # important line so the color doesn't bleed 
+
 
             frame_data = pybullet_obj['frames'][SELECTED_EPISODE][0]
             pos = frame_data['position']
@@ -68,18 +144,15 @@ with open(filepath, 'rb') as pickle_file:
                 ".")[-1].lower()
             # Handle different mesh formats
             if 'obj' in extension:
-                bpy.ops.wm.obj_import(
-                    filepath=pybullet_obj['mesh_path'],
-                    forward_axis='Y', up_axis='Z')
+                bpy.ops.wm.obj_import(filepath=pybullet_obj['mesh_path'],forward_axis='Y', up_axis='Z')
             elif 'dae' in extension:
-                bpy.ops.wm.collada_import(
-                    filepath=pybullet_obj['mesh_path'])
+                bpy.ops.wm.collada_import(filepath=pybullet_obj['mesh_path'])
             elif 'stl' in extension:
-                bpy.ops.wm.stl_import(
-                    filepath=pybullet_obj['mesh_path'])
+                bpy.ops.wm.stl_import(filepath=pybullet_obj['mesh_path'])
             else:
                 print("Unsupported File Format:{}".format(extension))
-                pass
+                continue 
+    
             # bpy.ops.mesh.primitive_cube_aded(location=(x, y, z), rotation = (x,y,z), scale = (x, y, z))
             # Delete lights and camera
             parts = 0
@@ -87,9 +160,7 @@ with open(filepath, 'rb') as pickle_file:
             for import_obj in context.selected_objects:
                 bpy.ops.object.select_all(action='DESELECT')
                 import_obj.select_set(True)
-                if 'Camera' in import_obj.name \
-                        or 'Light' in import_obj.name\
-                        or 'Lamp' in import_obj.name:
+                if 'Camera' in import_obj.name  or 'Light' in import_obj.name or 'Lamp' in import_obj.name:
                     bpy.ops.object.delete(use_global=True)
                 else:
                     scale = pybullet_obj['mesh_scale']
@@ -104,25 +175,137 @@ with open(filepath, 'rb') as pickle_file:
                 if obj.type == 'MESH':
                     obj.select_set(True)
             if len(context.selected_objects):
-                context.view_layer.objects.active =\
-                    context.selected_objects[0]
+                context.view_layer.objects.active = context.selected_objects[0]
                 # join them
                 bpy.ops.object.join()
-            blender_obj = context.view_layer.objects.active
-            blender_obj.name = obj_key
+            mesh_obj = context.view_layer.objects.active
+            mesh_obj.name = obj_key
             print(len(pybullet_obj['frames']))
             # Keyframe motion of imported object
             # for frame_count, frame_data in enumerate(pybullet_obj['frames']):
             frame_data = pybullet_obj['frames'][SELECTED_EPISODE][0]
             pos = frame_data['position']
             orn = frame_data['orientation']
+
+            for col in mesh_obj.users_collection:
+                col.objects.unlink(mesh_obj)
             # Apply position and rotation
-            blender_obj.location.x = pos[0]
-            blender_obj.location.y = pos[1]
-            blender_obj.location.z = pos[2]
-            blender_obj.rotation_mode = 'QUATERNION'
-            blender_obj.rotation_quaternion.x = orn[0]
-            blender_obj.rotation_quaternion.y = orn[1]
-            blender_obj.rotation_quaternion.z = orn[2]
-            blender_obj.rotation_quaternion.w = orn[3]
-            new_collection.objects.link(blender_obj)
+            mesh_obj.location.x = pos[0]
+            mesh_obj.location.y = pos[1]
+            mesh_obj.location.z = pos[2]
+            mesh_obj.rotation_mode = 'QUATERNION'
+            mesh_obj.rotation_quaternion.x = orn[0]
+            mesh_obj.rotation_quaternion.y = orn[1]
+            mesh_obj.rotation_quaternion.z = orn[2]
+            mesh_obj.rotation_quaternion.w = orn[3]
+            new_collection.objects.link(mesh_obj)
+            
+            ########### THIS IS PROGRAMMATIC SHADING ##########33
+            
+            if "left" in obj_key or "right" in obj_key:
+                if len(mesh_obj.data.materials) > 0:
+                    mesh_obj.data.materials[0] = metal_texture
+                else:
+                    mesh_obj.data.materials.append(metal_texture)
+            elif "panda" in obj_key:
+                if len(mesh_obj.data.materials) > 0:
+                    mesh_obj.data.materials[0] = powder_coated_metal_texture
+                else:
+                    mesh_obj.data.materials.append(powder_coated_metal_texture)
+            elif "calvin" in obj_key and "switch" not in obj_key and "led" not in obj_key and "light" not in obj_key and "button" not in obj_key:
+                mat = mesh_obj.data.materials[0]
+                mat.use_nodes = True
+                nodes = mat.node_tree.nodes
+                links = mat.node_tree.links
+                # Find the Principled BSDF node
+                principled = None
+                for node in nodes:
+                    if node.type == 'BSDF_PRINCIPLED':
+                        principled = node
+                        break
+                # Add clearcoat properties
+                principled.inputs['Coat Weight'].default_value = 0.4
+                principled.inputs['Coat Roughness'].default_value = 0.25
+                
+            elif "calvin" in obj_key and "switch" in obj_key:
+                mat = bpy.data.materials.new(name="Handle")
+                mat.use_nodes = True
+                nodes = mat.node_tree.nodes
+                bsdf = nodes.get("Principled BSDF")
+                bsdf.inputs["Base Color"].default_value = [0.2, 0.2, 0.2, 1]
+                bsdf.inputs['Coat Weight'].default_value = 0.4
+                bsdf.inputs['Coat Roughness'].default_value = 0.25
+                
+                mesh_obj.data.materials[0] = mat
+
+            elif "calvin" in obj_key and ("led" in obj_key or "light" in obj_key):
+                if len(mesh_obj.data.materials) > 0:
+                    mesh_obj.data.materials[0] = glass_texture
+                else:
+                    mesh_obj.data.materials.append(glass_texture)
+            
+            elif "calvin" in obj_key and "button" in obj_key:
+                mat = bpy.data.materials.new(name="Button")
+                mat.use_nodes = True
+                nodes = mat.node_tree.nodes
+                bsdf = nodes.get("Principled BSDF")
+                bsdf.inputs["Base Color"].default_value = [0, 0, 0, 1]
+                bsdf.inputs['Coat Weight'].default_value = 0.6
+                bsdf.inputs['Coat Roughness'].default_value = 0.1
+                mesh_obj.data.materials.append(mat)
+                
+            bpy.context.view_layer.objects.active = None # important line so the color doesn't bleed 
+
+
+
+
+# panda_longer_finger_0_panda_link0_0
+# panda_longer_finger_0_panda_link1_0
+# panda_longer_finger_0_panda_link2_0
+# panda_longer_finger_0_panda_link3_0
+# panda_longer_finger_0_panda_link4_0
+# panda_longer_finger_0_panda_link5_0
+# panda_longer_finger_0_panda_link6_0
+# panda_longer_finger_0_panda_link7_0
+# panda_longer_finger_0_panda_hand_0
+# panda_longer_finger_0_panda_leftfinger_0
+# panda_longer_finger_0_panda_rightfinger_0
+# panda_longer_finger_0_gripper_cam_0
+# panda_longer_finger_0_finger_left_tip_0
+# panda_longer_finger_0_finger_right_tip_0
+# block_red_middle_2_base_link_0
+# block_blue_small_3_base_link_0
+# block_pink_big_4_base_link_0
+# calvin_table_D_5_base_link_0
+# calvin_table_D_5_button_link_0
+# calvin_table_D_5_switch_link_0
+# calvin_table_D_5_slide_link_0
+# calvin_table_D_5_drawer_link_0
+# calvin_table_D_5_led_link_0
+# calvin_table_D_5_light_link_0
+# calvin_table_D_5_plank_link_0
+# panda_longer_finger_0_panda_link0_0
+# panda_longer_finger_0_panda_link1_0
+# panda_longer_finger_0_panda_link2_0
+# panda_longer_finger_0_panda_link3_0
+# panda_longer_finger_0_panda_link4_0
+# panda_longer_finger_0_panda_link5_0
+# panda_longer_finger_0_panda_link6_0
+# panda_longer_finger_0_panda_link7_0
+# panda_longer_finger_0_panda_hand_0
+# panda_longer_finger_0_panda_leftfinger_0
+# panda_longer_finger_0_panda_rightfinger_0
+# panda_longer_finger_0_gripper_cam_0
+# panda_longer_finger_0_finger_left_tip_0
+# panda_longer_finger_0_finger_right_tip_0
+# block_red_middle_2_base_link_0
+# block_blue_small_3_base_link_0
+# block_pink_big_4_base_link_0
+# calvin_table_D_5_base_link_0
+# calvin_table_D_5_button_link_0
+# calvin_table_D_5_switch_link_0
+# calvin_table_D_5_slide_link_0
+# calvin_table_D_5_drawer_link_0
+# calvin_table_D_5_led_link_0
+# calvin_table_D_5_light_link_0
+# calvin_table_D_5_plank_link_0
