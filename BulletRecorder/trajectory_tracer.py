@@ -17,25 +17,43 @@ import numpy as np
 #EXCLUSION_LIST = [0, 1, 2, 3, 6, 8, 11, 12, 15, 19] # for ours switch
 #KEEP_LIST = None 
 
-EXCLUSION_LIST = None #[] # for door drawers 
-KEEP_LIST = [1, 3, 5, 6, 8, 9, 11, 14, 16, 17, 19, 24, 27, 32, 34, 37, 38, 40, 41, 42] 
+EXCLUSION_LIST = None # for base policy
+KEEP_LIST = [1, 2, 13, 20, 25, 26] 
 
-# Function to map frame count to a color from blue to yellow
+
+#EXCLUSION_LIST = None # for door drawers 
+#KEEP_LIST = [1, 3, 5, 6, 8, 9, 11, 14, 16, 17, 19, 24, 27, 32, 34, 37, 38, 40, 41, 42] 
+
+
+#EXCLUSION_LIST = [5, 12] # for door drawers 
+#KEEP_LIST = None
+
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
+
+# Function to map frame count to a plasma color
 def frame_to_color(frame_count, min_frame, max_frame):
-    t = (frame_count - min_frame) / (max_frame - min_frame)
-    # Blue to yellow interpolation (Blue: 0,0,1 -> Yellow: 1,1,0)
-#    r = t
-    g = t
-    r = 0
-    b = 1 - t
-    return (r, g, b, 1)  # RGBA
+    norm = mcolors.Normalize(vmin=min_frame, vmax=max_frame)
+    plasma = cm.get_cmap('plasma')
+    rgba = plasma(norm(frame_count))
+    return rgba  # Already returns (r, g, b, a)
+
+## Function to map frame count to a color from blue to yellow
+#def frame_to_color(frame_count, min_frame, max_frame):
+#    t = (frame_count - min_frame) / (max_frame - min_frame)
+#    # Blue to yellow interpolation (Blue: 0,0,1 -> Yellow: 1,1,0)
+##    r = t
+#    g = t
+#    r = 0
+#    b = 1 - t
+#    return (r, g, b, 1)  # RGBA
 
 
 
 
 skip_frames = 1
 max_frames = 200
-filepath = '/Users/maxjdu/Dropbox/My Academics/Research/classifier_guidance/blender_renders/frames_door_drawer.pkl'
+filepath = '/Users/maxjdu/Dropbox/My Academics/Research/classifier_guidance/blender_renders/frames_base_policy.pkl'
 #filepath = '/Users/maxjdu/Dropbox/My Academics/Research/classifier_guidance/blender_renders/ours_switch.pkl'
 
 context = bpy.context
@@ -108,12 +126,12 @@ with open(filepath, 'rb') as pickle_file:
             if bsdf:
                 # Color and glassy settings
                 bsdf.inputs["Base Color"].default_value = color
-                bsdf.inputs["Transmission Weight"].default_value = 0.5
+                bsdf.inputs["Transmission Weight"].default_value = 0 #0.5
                 bsdf.inputs["Roughness"].default_value = 0.05
                 bsdf.inputs["IOR"].default_value = 1.45
                 
                 bsdf.inputs["Emission Color"].default_value = color 
-                bsdf.inputs["Emission Strength"].default_value = 1 
+                bsdf.inputs["Emission Strength"].default_value = 0.5* step / len(episode_l)
             else:
                 print(f"Error: 'Principled BSDF' not found in material {mat.name}")
                 
